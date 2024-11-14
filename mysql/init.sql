@@ -1,0 +1,11 @@
+-- mysql/init.sql
+CREATE DATABASE IF NOT EXISTS soporte_db;
+USE soporte_db;
+
+CREATE TABLE IF NOT EXISTS REQUERIMIENTO (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  nombre VARCHAR(255),
+  telefono VARCHAR(50),
+  requerimiento TEXT,
+  fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

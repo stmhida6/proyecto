@@ -1,0 +1,72 @@
+# docker-compose.yml
+version: '3'
+services:
+  api-upana-sabados:
+    build: .
+    environment:
+      - PORT=5000
+    deploy:
+      replicas: 3
+    networks:
+      - loadbalancing-sabados
+
+  cola-sabados:
+    build: ./cola
+    container_name: cola-sabados  
+    command: ["python", "consumidor.py"]
+    depends_on:
+      - rabbitmq-sabados
+      - mysql
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: soporte_db
+      MYSQL_USER: app
+      MYSQL_PASSWORD: app
+    networks:
+      - loadbalancing-sabados
+
+  nginx-sabados:
+      build: nginx/    
+      container_name: nginx-sabados
+      ports:
+        - "3000:80"   
+      networks:
+        - loadbalancing-sabados
+      depends_on:
+        - api-upana-sabados
+
+  mysql: 
+      image: mysql
+      container_name: mysql
+      environment:
+        MYSQL_ROOT_PASSWORD: root
+        MYSQL_DATABASE: soporte_db
+        #MYSQL_USER: app
+        #MYSQL_PASSWORD: app
+      ports:
+       - "3306:3306"
+      volumes:
+       - app_mysql_sabados:/var/lib/mysql
+       - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+      networks:
+        - loadbalancing-sabados
+
+  rabbitmq-sabados:
+      image: rabbitmq:3-management-alpine
+      container_name: rabbitmq-sabados
+      ports:
+        - "5672:5672"
+        - "15672:15672"
+      volumes:
+        - rabbitmq_daa_abados:/var/lib/rabbitmq
+        - rabbitmq_log_sabados:/var/log/rabbitmq
+      networks:
+        - loadbalancing-sabados
+
+volumes:
+   app_mysql_sabados:
+   rabbitmq_daa_abados:
+   rabbitmq_log_sabados:
+
+networks:
+   loadbalancing-sabados:
