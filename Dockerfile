@@ -8,7 +8,7 @@ WORKDIR /app
 COPY . /app
 
 # Instala las dependencias
-RUN pip install flask pika
+RUN pip install flask pika mysql-connector-python
 
 # Expone el puerto en el que la aplicación correrá
 EXPOSE 5000
