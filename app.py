@@ -3,6 +3,7 @@ import mysql.connector
 import os
 import random
 from datetime import datetime
+import pika
 
 app = Flask(__name__)
 
@@ -35,10 +36,8 @@ def obtener_estado():
     return jsonify({
         'status': 'ok',
         'idContenedor': id_contenedor,
-        'mysql_host': mysql_host,
-        'mysql_db': mysql_db,
-        'mysql_user': mysql_user,
-        'mysql_password': mysql_password
+        'mensaje': 'API de tarjetas de crédito en Python'
+
 
     })
 
@@ -48,11 +47,12 @@ def crear_cliente_db(data):
         conexion = obtener_conexion()
         if conexion:
             cursor = conexion.cursor()
+            id_replica = os.environ.get('HOSTNAME') 
             cursor.execute("""
-                INSERT INTO clientes (nombre, apellidos, edad, direccion, datos_laborales, datos_beneficiarios, dpi)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO clientes (nombre, apellidos, edad, direccion, datos_laborales, id_replica, datos_beneficiarios, dpi)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """, (data['nombre'], data['apellidos'], data['edad'], data['direccion'], 
-                  data['datos_laborales'], data['datos_beneficiarios'], data['dpi']))
+                  data['datos_laborales'], id_replica, data['datos_beneficiarios'], data['dpi']))
             conexion.commit()
             cliente_id = cursor.lastrowid  # Obtener el ID del cliente insertado
             cursor.close()
@@ -73,14 +73,15 @@ def crear_tarjeta_db(cliente_id):
         conexion = obtener_conexion()
         if conexion:
             cursor = conexion.cursor()
+            id_replica = os.environ.get('HOSTNAME') 
             cursor.execute("""
-                INSERT INTO tarjetas_credito (pan, id_cliente, fecha_vencimiento, estado)
+                INSERT INTO tarjetas_credito (pan, id_cliente, fecha_vencimiento, estado, id_replica)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (pan, cliente_id, fecha_vencimiento, 'activa', id_replica))
+            cursor.execute("""
+                INSERT INTO balances (pan, limite, actual, id_replica)
                 VALUES (%s, %s, %s, %s)
-            """, (pan, cliente_id, fecha_vencimiento, 'activa'))
-            cursor.execute("""
-                INSERT INTO balances (pan, limite, actual)
-                VALUES (%s, %s, %s)
-            """, (pan, 5000, 0))  # Limite de crédito de 5000 y saldo actual 0
+            """, (pan, 5000, 0, id_replica))  # Limite de crédito de 5000 y saldo actual 0
             conexion.commit()
             cursor.close()
             conexion.close()
@@ -89,6 +90,10 @@ def crear_tarjeta_db(cliente_id):
     except mysql.connector.Error as err:
         print(f"Error al insertar tarjeta: {err}")
         return None
+
+def enviar_sms(mensaje):
+    print(f"Enviando SMS: {mensaje}")
+   
 
 # Ruta para obtener todas las tarjetas de crédito
 @app.route('/tarjeta-credito', methods=['GET'])
@@ -208,19 +213,30 @@ def realizar_cargo(pan):
         cursor = conexion.cursor()
         cursor.execute("SELECT actual, limite FROM balances WHERE pan = %s", (pan,))
         balance = cursor.fetchone()
-        if balance and balance['actual'] + monto <= balance['limite']:
-            nuevo_balance = balance['actual'] + monto
-            cursor.execute("UPDATE balances SET actual = %s WHERE pan = %s", (nuevo_balance, pan))
-            conexion.commit()
-            cursor.close()
-            conexion.close()
-            return jsonify({"mensaje": "Cargo realizado"})
+        cursor.execute("SELECT estado FROM tarjetas_credito WHERE pan = %s", (pan,))
+        estado_tarjeta = cursor.fetchone()
+        if estado_tarjeta and estado_tarjeta[0] == 'activa':
+            if balance and balance[0] + monto <= balance[1]:
+                nuevo_balance = balance[0] + monto
+                cursor.execute("UPDATE balances SET actual = %s WHERE pan = %s", (nuevo_balance, pan))
+                conexion.commit()
+                cursor.close()
+                conexion.close()
+
+
+                enviar_sms(f"Se ha realizado un cargo a su tarjeta {pan} por un monto de Q{monto} ")
+                return jsonify({"mensaje": "Cargo realizado"})
+            else:
+                cursor.close()
+                conexion.close()
+                return jsonify({"error": "Monto supera el límite de crédito"}), 400
         else:
             cursor.close()
             conexion.close()
-            return jsonify({"error": "Monto supera el límite de crédito"}), 400
+            return jsonify({"error": "Tarjeta no activa"}), 400
     else:
         return jsonify({"error": "Error de conexión con la base de datos"}), 500
+     
 
 # Ruta para realizar un abono a la tarjeta de crédito
 @app.route('/tarjeta-credito/abono/<string:pan>', methods=['POST'])
@@ -236,7 +252,7 @@ def realizar_abono(pan):
         cursor.execute("SELECT actual FROM balances WHERE pan = %s", (pan,))
         balance = cursor.fetchone()
         if balance:
-            nuevo_balance = balance['actual'] - monto
+            nuevo_balance = balance[0] - monto
             if nuevo_balance < 0:
                 cursor.close()
                 conexion.close()
@@ -254,8 +270,7 @@ def realizar_abono(pan):
         return jsonify({"error": "Error de conexión con la base de datos"}), 500
    
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True) 
-            
- 
-   
+    id_contenedor = os.environ.get('HOSTNAME')
+    print(f"ID del contenedor: {id_contenedor}")
+    app.run(host='0.0.0.0', port=5000, debug=True)
 

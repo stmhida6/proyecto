@@ -9,6 +9,8 @@ mysql_host = os.environ['MYSQL_HOST']
 mysql_db = os.environ['MYSQL_DATABASE']
 mysql_user = os.environ['MYSQL_USER']
 mysql_password = os.environ['MYSQL_PASSWORD']
+mysql_root_password = os.environ['MYSQL_ROOT_PASSWORD']
+mysql_root= 'root'
 
 
 def guardar_en_bd(nombre, telefono, requerimiento):
