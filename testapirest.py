@@ -32,7 +32,8 @@ clientes = [
         "no_telefono": "12345678",
         "datos_laborales": "Empleado en XYZ S.A.",
         "datos_beneficiarios": "Esposa, María López",
-        "dpi": "1234567890123"
+        "dpi": "1234567890123",
+        "estado": "activo",     
     },
     {
         "nombre": "Ana García",
@@ -42,7 +43,8 @@ clientes = [
         "no_telefono": "22222222",
         "datos_laborales": "Independiente",
         "datos_beneficiarios": "Hijo, Carlos García",
-        "dpi": "2345678901234"
+        "dpi": "2345678901234",
+        "estado": "activo"        
     },
     {
         "nombre": "Carlos Ramírez",
@@ -52,7 +54,8 @@ clientes = [
         "no_telefono": "33333333",
         "datos_laborales": "Gerente en ABC Corp.",
         "datos_beneficiarios": "Padre, José Ramírez",
-        "dpi": "3456789012345"
+        "dpi": "3456789012345",
+        "estado": "activo"      
     },
     {
         "nombre": "Laura Martínez",
@@ -62,7 +65,8 @@ clientes = [
         "no_telefono": "44444444",
         "datos_laborales": "Directora en DEF Ltd.",
         "datos_beneficiarios": "Hermano, Luis Martínez",
-        "dpi": "4567890123456"
+        "dpi": "4567890123456",
+        "estado": "activo"        
     },
     {
         "nombre": "Miguel Torres",
@@ -72,7 +76,8 @@ clientes = [
         "no_telefono": "55555555",
         "datos_laborales": "Consultor Independiente",
         "datos_beneficiarios": "Esposa, Clara Torres",
-        "dpi": "5678901234567"
+        "dpi": "5678901234567",
+        "estado": "activo"        
     }
 ]
 

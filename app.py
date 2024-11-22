@@ -3,7 +3,6 @@ import mysql.connector
 import os
 import random
 from datetime import datetime
-import pika
 
 app = Flask(__name__)
 
@@ -13,7 +12,7 @@ mysql_db = os.environ['MYSQL_DATABASE']
 mysql_user = os.environ['MYSQL_USER']
 mysql_password = os.environ['MYSQL_PASSWORD']
 mysql_root_password = os.environ['MYSQL_ROOT_PASSWORD']
-mysql_root= 'root'
+mysql_root = 'root'
 
 # Establecer conexión con la base de datos MySQL
 def obtener_conexion():
@@ -29,59 +28,39 @@ def obtener_conexion():
         print(f"Error al conectar con la base de datos: {err}")
         return None
 
-
 @app.route('/health', methods=['GET'])
 def obtener_estado():
     id_contenedor = os.environ.get('HOSTNAME')
     return jsonify({
         'status': 'ok',
         'idContenedor': id_contenedor,
-        'mensaje': 'API de tarjetas de crédito en Python'
-
-
+        'mensaje': 'API de tarjetas en Python'
     })
 
-# Crear un cliente en la base de datos
-def crear_cliente_db(data):
+# Crear un cliente y tarjeta en la base de datos
+def crear_tarjeta_db(data):
     try:
         conexion = obtener_conexion()
         if conexion:
             cursor = conexion.cursor()
-            id_replica = os.environ.get('HOSTNAME') 
-            cursor.execute("""
-                INSERT INTO clientes (nombre, apellidos, edad, direccion, datos_laborales, id_replica, datos_beneficiarios, dpi)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            """, (data['nombre'], data['apellidos'], data['edad'], data['direccion'], 
-                  data['datos_laborales'], id_replica, data['datos_beneficiarios'], data['dpi']))
-            conexion.commit()
-            cliente_id = cursor.lastrowid  # Obtener el ID del cliente insertado
-            cursor.close()
-            conexion.close()
-            return cliente_id
-        return None
-    except mysql.connector.Error as err:
-        print(f"Error al insertar cliente: {err}")
-        return None
+            id_replica = os.environ.get('HOSTNAME')
+            pan = f"6800{random.randint(100000000000, 999999999999)}"
+            fecha_vencimiento = datetime(2027, 12, 31)
 
-# Crear una nueva tarjeta de crédito y asociarla al cliente
-def crear_tarjeta_db(cliente_id):
-    # Generar un PAN aleatorio comenzando con 6800
-    pan = f"6800{random.randint(100000000000, 999999999999)}"
-    fecha_vencimiento = datetime(2027, 12, 31)  # Establecer una fecha de vencimiento predeterminada (por ejemplo, 31/12/2027)
-    
-    try:
-        conexion = obtener_conexion()
-        if conexion:
-            cursor = conexion.cursor()
-            id_replica = os.environ.get('HOSTNAME') 
             cursor.execute("""
-                INSERT INTO tarjetas_credito (pan, id_cliente, fecha_vencimiento, estado, id_replica)
-                VALUES (%s, %s, %s, %s, %s)
-            """, (pan, cliente_id, fecha_vencimiento, 'activa', id_replica))
+                INSERT INTO tarjetas (pan, nombre, apellidos, edad, direccion, no_telefono, datos_laborales,
+                                      datos_beneficiarios, dpi, fecha_vencimiento, estado, id_replica)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (pan, data['nombre'], data['apellidos'], data['edad'], data['direccion'], data['no_telefono'],
+                 data.get('datos_laborales'), data.get('datos_beneficiarios'), data['dpi'], fecha_vencimiento,
+                 data['estado'], id_replica))
+
+            # Balance inicial
             cursor.execute("""
                 INSERT INTO balances (pan, limite, actual, id_replica)
                 VALUES (%s, %s, %s, %s)
-            """, (pan, 5000, 0, id_replica))  # Limite de crédito de 5000 y saldo actual 0
+            """, (pan, 5000, 0, id_replica))
+
             conexion.commit()
             cursor.close()
             conexion.close()
@@ -91,18 +70,23 @@ def crear_tarjeta_db(cliente_id):
         print(f"Error al insertar tarjeta: {err}")
         return None
 
-def enviar_sms(mensaje):
-    print(f"Enviando SMS: {mensaje}")
-   
+# Ruta para crear una nueva tarjeta con información del cliente
+@app.route('/tarjeta-credito', methods=['POST'])
+def crear_tarjeta():
+    data = request.get_json()
+    pan = crear_tarjeta_db(data)
+    if pan:
+        return jsonify({"mensaje": "Cliente y tarjeta creados", "pan": pan}), 201
+    else:
+        return jsonify({"error": "Error al crear el cliente y la tarjeta"}), 500
 
-# Ruta para obtener todas las tarjetas de crédito
+# Ruta para obtener todas las tarjetas
 @app.route('/tarjeta-credito', methods=['GET'])
 def obtener_tarjetas():
     conexion = obtener_conexion()
     if conexion:
-        cursor = conexion.cursor()
-        #cursor = conexion.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM tarjetas_credito")
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM tarjetas")
         tarjetas = cursor.fetchall()
         cursor.close()
         conexion.close()
@@ -116,7 +100,7 @@ def obtener_tarjeta(pan):
     conexion = obtener_conexion()
     if conexion:
         cursor = conexion.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM tarjetas_credito WHERE pan = %s", (pan,))
+        cursor.execute("SELECT * FROM tarjetas WHERE pan = %s", (pan,))
         tarjeta = cursor.fetchone()
         cursor.close()
         conexion.close()
@@ -127,59 +111,47 @@ def obtener_tarjeta(pan):
     else:
         return jsonify({"error": "Error de conexión con la base de datos"}), 500
 
-# Ruta para crear un nuevo cliente y tarjeta de crédito
-@app.route('/tarjeta-credito', methods=['POST'])
-def crear_cliente_y_tarjeta():
-    data = request.get_json()
-
-    # Primero, creamos el cliente
-    cliente_id = crear_cliente_db(data)
-    if cliente_id:
-        # Luego, creamos la tarjeta de crédito asociada al cliente
-        pan = crear_tarjeta_db(cliente_id)
-        if pan:
-            return jsonify({"mensaje": "Cliente y tarjeta creados", "pan": pan}), 201
-        else:
-            return jsonify({"error": "Error al crear la tarjeta de crédito"}), 500
-    else:
-        return jsonify({"error": "Error al crear el cliente"}), 500
-
 # Ruta para actualizar una tarjeta
 @app.route('/tarjeta-credito/<string:pan>', methods=['PUT'])
 def actualizar_tarjeta(pan):
     data = request.get_json()
-    conexion = obtener_conexion()
-    if conexion:
-        cursor = conexion.cursor()
-        cursor.execute("UPDATE tarjetas_credito SET estado = %s WHERE pan = %s", (data['estado'], pan))
-        conexion.commit()
-        cursor.close()
-        conexion.close()
-        return jsonify({"mensaje": "Tarjeta actualizada"})
-    else:
-        return jsonify({"error": "Error de conexión con la base de datos"}), 500
+    if not data:
+        return jsonify({"error": "No se proporcionaron datos para actualizar"}), 400
 
-# Ruta para eliminar una tarjeta
-@app.route('/tarjeta-credito/<string:pan>', methods=['DELETE'])
-def eliminar_tarjeta(pan):
     conexion = obtener_conexion()
     if conexion:
-        cursor = conexion.cursor()
-        cursor.execute("SELECT actual FROM balances WHERE pan = %s", (pan,))
-        balance = cursor.fetchone()
-        if balance and balance['actual'] == 0:  # Verificamos que el balance actual sea 0
-            cursor.execute("DELETE FROM tarjetas_credito WHERE pan = %s", (pan,))
-            cursor.execute("DELETE FROM balances WHERE pan = %s", (pan,))
+        try:
+            cursor = conexion.cursor()
+
+            # Generar dinámicamente la consulta de actualización
+            campos = []
+            valores = []
+
+            for clave, valor in data.items():
+                if clave in ['nombre', 'apellidos', 'edad', 'direccion', 'no_telefono', 'datos_laborales', 
+                             'datos_beneficiarios', 'dpi', 'fecha_vencimiento', 'estado', 'id_replica']:
+                    campos.append(f"{clave} = %s")
+                    valores.append(valor)
+
+            if not campos:
+                return jsonify({"error": "No se proporcionaron campos válidos para actualizar"}), 400
+
+            # Construir y ejecutar la consulta SQL
+            consulta = f"UPDATE tarjetas SET {', '.join(campos)} WHERE pan = %s"
+            valores.append(pan)  # Agregar el `pan` al final de los valores
+            cursor.execute(consulta, valores)
+
+            # Confirmar cambios y cerrar conexión
             conexion.commit()
             cursor.close()
             conexion.close()
-            return jsonify({"mensaje": "Tarjeta eliminada"})
-        else:
-            cursor.close()
-            conexion.close()
-            return jsonify({"error": "No se puede eliminar la tarjeta con saldo pendiente"}), 400
+
+            return jsonify({"mensaje": "Tarjeta actualizada exitosamente"}), 200
+        except mysql.connector.Error as err:
+            return jsonify({"error": f"Error al actualizar la tarjeta: {err}"}), 500
     else:
         return jsonify({"error": "Error de conexión con la base de datos"}), 500
+
 
 # Ruta para obtener el balance de una tarjeta
 @app.route('/tarjeta-credito/balance/<string:pan>', methods=['GET'])
@@ -192,85 +164,155 @@ def obtener_balance(pan):
         cursor.close()
         conexion.close()
         if balance:
-            # Calculamos el saldo disponible
             balance['saldo_disponible'] = balance['limite'] - balance['actual']
             return jsonify(balance)
         else:
-            return jsonify({"error": "Tarjeta no encontrada"}), 404
+            return jsonify({"error": "Balance no encontrado"}), 404
     else:
         return jsonify({"error": "Error de conexión con la base de datos"}), 500
 
-# Ruta para realizar un cargo a la tarjeta de crédito
+# Ruta para eliminar una tarjeta
+@app.route('/tarjeta-credito/<string:pan>', methods=['DELETE'])
+def eliminar_tarjeta(pan):
+    conexion = obtener_conexion()
+    if conexion:
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute("SELECT actual FROM balances WHERE pan = %s", (pan,))
+        balance = cursor.fetchone()
+        if balance and balance['actual'] == 0:
+            cursor.execute("DELETE FROM balances WHERE pan = %s", (pan,))
+            cursor.execute("DELETE FROM tarjetas WHERE pan = %s", (pan,))
+            conexion.commit()
+            cursor.close()
+            conexion.close()
+            return jsonify({"mensaje": "Tarjeta eliminada"})
+        else:
+            cursor.close()
+            conexion.close()
+            return jsonify({"error": "No se puede eliminar la tarjeta con saldo pendiente"}), 400
+    else:
+        return jsonify({"error": "Error de conexión con la base de datos"}), 500
+    
+# Función para enviar un mensaje de texto (SMS) a un número de teléfono
+def enviar_sms(mensaje, no_telefono, pan):
+    #fecha actual
+    fecha = datetime.now()
+    print(f"Fecha: {fecha}")
+   
+    print(f"Enviando SMS a {no_telefono}: {mensaje}")
+    return True
+
+
 @app.route('/tarjeta-credito/procesamiento/<string:pan>', methods=['POST'])
 def realizar_cargo(pan):
     data = request.get_json()
     monto = data.get('monto')
-    if monto is None or monto <= 0:
+
+    if not monto or monto <= 0:
         return jsonify({"error": "Monto inválido"}), 400
 
     conexion = obtener_conexion()
     if conexion:
-        cursor = conexion.cursor()
-        cursor.execute("SELECT actual, limite FROM balances WHERE pan = %s", (pan,))
-        balance = cursor.fetchone()
-        cursor.execute("SELECT estado FROM tarjetas_credito WHERE pan = %s", (pan,))
-        estado_tarjeta = cursor.fetchone()
-        if estado_tarjeta and estado_tarjeta[0] == 'activa':
-            if balance and balance[0] + monto <= balance[1]:
-                nuevo_balance = balance[0] + monto
-                cursor.execute("UPDATE balances SET actual = %s WHERE pan = %s", (nuevo_balance, pan))
-                conexion.commit()
-                cursor.close()
-                conexion.close()
+        try:
+            cursor = conexion.cursor(dictionary=True)
 
+            # Verificar si la tarjeta está activa
+            #cursor.execute("SELECT estado FROM tarjetas WHERE pan = %s", (pan,))
+            cursor.execute("SELECT estado, no_telefono FROM tarjetas WHERE pan = %s", (pan,))
 
-                enviar_sms(f"Se ha realizado un cargo a su tarjeta {pan} por un monto de Q{monto} ")
-                return jsonify({"mensaje": "Cargo realizado"})
-            else:
-                cursor.close()
-                conexion.close()
-                return jsonify({"error": "Monto supera el límite de crédito"}), 400
-        else:
+            tarjeta = cursor.fetchone()
+            if not tarjeta:
+                return jsonify({"error": "Tarjeta no encontrada"}), 404
+            if tarjeta['estado'] != 'activo':
+                return jsonify({"error": "La tarjeta no está activa"}), 400
+            
+            no_telefono = tarjeta['no_telefono']
+
+            # Verificar el balance de la tarjeta
+            cursor.execute("SELECT actual, limite FROM balances WHERE pan = %s", (pan,))
+            balance = cursor.fetchone()
+            if not balance:
+                return jsonify({"error": "Balance no encontrado"}), 404
+
+            nuevo_balance = balance['actual'] + monto
+            if nuevo_balance > balance['limite']:
+                return jsonify({"error": "Monto excede el límite de crédito"}), 400
+
+            # Actualizar el saldo
+            cursor.execute("UPDATE balances SET actual = %s WHERE pan = %s", (nuevo_balance, pan))
+            conexion.commit()
+
             cursor.close()
             conexion.close()
-            return jsonify({"error": "Tarjeta no activa"}), 400
+
+            # Simulación de envío de notificación (puedes reemplazar con un servicio real de mensajería)
+            mensaje = f"Se ha realizado un cargo de Q{monto:.2f} en la tarjeta {pan}"
+            enviar_sms(mensaje, no_telefono, pan)
+           # enviar_sms(f"Se ha realizado un cargo de Q{monto} en la tarjeta {pan}")
+
+            return jsonify({"mensaje": "Cargo realizado con éxito", "nuevo_saldo": nuevo_balance})
+        except mysql.connector.Error as err:
+            print(f"Error al realizar el cargo: {err}")
+            return jsonify({"error": "Error al procesar el cargo"}), 500
+        finally:
+            if conexion.is_connected():
+                conexion.close()
     else:
         return jsonify({"error": "Error de conexión con la base de datos"}), 500
-     
 
-# Ruta para realizar un abono a la tarjeta de crédito
 @app.route('/tarjeta-credito/abono/<string:pan>', methods=['POST'])
 def realizar_abono(pan):
     data = request.get_json()
     monto = data.get('monto')
-    if monto is None or monto <= 0:
+
+    if not monto or monto <= 0:
         return jsonify({"error": "Monto inválido"}), 400
 
     conexion = obtener_conexion()
     if conexion:
-        cursor = conexion.cursor()
-        cursor.execute("SELECT actual FROM balances WHERE pan = %s", (pan,))
-        balance = cursor.fetchone()
-        if balance:
-            nuevo_balance = balance[0] - monto
+        try:
+            cursor = conexion.cursor(dictionary=True)
+
+            # Verificar si la tarjeta existe
+            cursor.execute("SELECT estado FROM tarjetas WHERE pan = %s", (pan,))
+            tarjeta = cursor.fetchone()
+            if not tarjeta:
+                return jsonify({"error": "Tarjeta no encontrada"}), 404
+
+            # Verificar el balance de la tarjeta
+            cursor.execute("SELECT actual FROM balances WHERE pan = %s", (pan,))
+            balance = cursor.fetchone()
+            if not balance:
+                return jsonify({"error": "Balance no encontrado"}), 404
+
+            # Validar que el monto no exceda el saldo actual
+            nuevo_balance = balance['actual'] - monto
             if nuevo_balance < 0:
-                cursor.close()
-                conexion.close()
-                return jsonify({"error": "El abono supera el saldo actual"}), 400
+                return jsonify({"error": "El abono excede el saldo actual"}), 400
+
+            # Actualizar el saldo
             cursor.execute("UPDATE balances SET actual = %s WHERE pan = %s", (nuevo_balance, pan))
             conexion.commit()
+
             cursor.close()
             conexion.close()
-            return jsonify({"mensaje": "Abono realizado"})
-        else:
-            cursor.close()
-            conexion.close()
-            return jsonify({"error": "Tarjeta no encontrada"}), 404
+
+            # Simulación de envío de notificación (puedes reemplazar con un servicio real de mensajería)
+            #enviar_sms(f"Se ha realizado un abono de Q{monto} a la tarjeta {pan}")
+
+            return jsonify({"mensaje": "Abono realizado con éxito", "nuevo_saldo": nuevo_balance})
+        except mysql.connector.Error as err:
+            print(f"Error al realizar el abono: {err}")
+            return jsonify({"error": "Error al procesar el abono"}), 500
+        finally:
+            if conexion.is_connected():
+                conexion.close()
     else:
         return jsonify({"error": "Error de conexión con la base de datos"}), 500
-   
+
+
+
 if __name__ == '__main__':
     id_contenedor = os.environ.get('HOSTNAME')
     print(f"ID del contenedor: {id_contenedor}")
     app.run(host='0.0.0.0', port=5000, debug=True)
-
