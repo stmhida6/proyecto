@@ -1,8 +1,10 @@
 from flask import Flask, request, jsonify
 import mysql.connector
 import os
+import json
 import random
 from datetime import datetime
+import pika
 
 app = Flask(__name__)
 
@@ -195,13 +197,22 @@ def eliminar_tarjeta(pan):
     
 # Función para enviar un mensaje de texto (SMS) a un número de teléfono
 def enviar_sms(mensaje, no_telefono, pan):
-    #fecha actual
-    fecha = datetime.now()
-    print(f"Fecha: {fecha}")
-   
-    print(f"Enviando SMS a {no_telefono}: {mensaje}")
-    return True
+    try:
 
+        body={
+            "mensaje": mensaje,
+            "no_telefono": no_telefono,
+            "pan": pan
+        }
+        connection = pika.BlockingConnection(pika.ConnectionParameters(host='rabbitmq-sabados'))
+        canal = connection.channel()
+        canal.queue_declare(queue='app-sabados-queue')
+        canal.basic_publish(exchange='', routing_key='app-sabados-queue', body=json.dumps(body), properties=pika.BasicProperties(delivery_mode=2))
+        connection.close()
+        return True
+    except pika.exceptions.AMQPError as err:
+        print(f"Error al enviar SMS: {err}")
+        return False 
 
 @app.route('/tarjeta-credito/procesamiento/<string:pan>', methods=['POST'])
 def realizar_cargo(pan):
@@ -274,7 +285,7 @@ def realizar_abono(pan):
             cursor = conexion.cursor(dictionary=True)
 
             # Verificar si la tarjeta existe
-            cursor.execute("SELECT estado FROM tarjetas WHERE pan = %s", (pan,))
+            cursor.execute("SELECT estado, no_telefono FROM tarjetas WHERE pan = %s", (pan,))
             tarjeta = cursor.fetchone()
             if not tarjeta:
                 return jsonify({"error": "Tarjeta no encontrada"}), 404
@@ -289,6 +300,8 @@ def realizar_abono(pan):
             nuevo_balance = balance['actual'] - monto
             if nuevo_balance < 0:
                 return jsonify({"error": "El abono excede el saldo actual"}), 400
+            
+            no_telefono = tarjeta['no_telefono']
 
             # Actualizar el saldo
             cursor.execute("UPDATE balances SET actual = %s WHERE pan = %s", (nuevo_balance, pan))
@@ -296,6 +309,9 @@ def realizar_abono(pan):
 
             cursor.close()
             conexion.close()
+
+            mensaje = f"Se ha realizado un abono a su tarjeta {pan} por Q{monto:.2f} "
+            enviar_sms(mensaje, no_telefono, pan)
 
             # Simulación de envío de notificación (puedes reemplazar con un servicio real de mensajería)
             #enviar_sms(f"Se ha realizado un abono de Q{monto} a la tarjeta {pan}")

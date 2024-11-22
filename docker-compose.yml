@@ -20,7 +20,7 @@ services:
   cola-sabados:
     build: ./cola
     container_name: cola-sabados  
-    command: ["python", "consumidor.py"]
+    command: ["python","-u","consumidor.py"]
     depends_on:
       - rabbitmq-sabados
       - mysql
