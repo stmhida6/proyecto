@@ -46,6 +46,7 @@ def crear_tarjeta_db(data):
         if conexion:
             cursor = conexion.cursor()
             id_replica = os.environ.get('HOSTNAME')
+            # Generar un PAN aleatorio de 16 dígitos con prefijo 6800
             pan = f"6800{random.randint(100000000000, 999999999999)}"
             fecha_vencimiento = datetime(2027, 12, 31)
 
@@ -56,8 +57,9 @@ def crear_tarjeta_db(data):
             """, (pan, data['nombre'], data['apellidos'], data['edad'], data['direccion'], data['no_telefono'],
                  data.get('datos_laborales'), data.get('datos_beneficiarios'), data['dpi'], fecha_vencimiento,
                  data['estado'], id_replica))
+            
 
-            # Balance inicial
+            # Balance inicial con la nueva tarjeta
             cursor.execute("""
                 INSERT INTO balances (pan, limite, actual, id_replica)
                 VALUES (%s, %s, %s, %s)
@@ -182,6 +184,7 @@ def eliminar_tarjeta(pan):
         cursor.execute("SELECT actual FROM balances WHERE pan = %s", (pan,))
         balance = cursor.fetchone()
         if balance and balance['actual'] == 0:
+            # Elimina la tarjeta y el balance asociado
             cursor.execute("DELETE FROM balances WHERE pan = %s", (pan,))
             cursor.execute("DELETE FROM tarjetas WHERE pan = %s", (pan,))
             conexion.commit()
@@ -198,7 +201,7 @@ def eliminar_tarjeta(pan):
 # Función para enviar un mensaje de texto (SMS) a un número de teléfono
 def enviar_sms(mensaje, no_telefono, pan):
     try:
-
+        # Conexión con el servidor RabbitMQ
         body={
             "mensaje": mensaje,
             "no_telefono": no_telefono,
@@ -246,6 +249,7 @@ def realizar_cargo(pan):
                 return jsonify({"error": "Balance no encontrado"}), 404
 
             nuevo_balance = balance['actual'] + monto
+            # Validar que el monto no exceda el límite de crédito
             if nuevo_balance > balance['limite']:
                 return jsonify({"error": "Monto excede el límite de crédito"}), 400
 

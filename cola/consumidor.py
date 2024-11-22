@@ -45,6 +45,7 @@ def main():
             estado= "enviado"
             id_tarjeta=1
             mensaje = json.loads(body)
+            # Guardar en base de datos
             guardar_en_bd(mensaje['mensaje'], mensaje['no_telefono'], mensaje['pan'],fecha_envio,estado,id_tarjeta)
             #print deliver tag
             print("deliver tag " + str(method.delivery_tag))
