@@ -59,7 +59,7 @@ def crear_tarjeta_db(data):
                  data['estado'], id_replica))
             
 
-            # Balance inicial con la nueva tarjeta
+            # Balance inicial con la nueva tarjeta (límite de Q5000 y saldo actual de Q0)
             cursor.execute("""
                 INSERT INTO balances (pan, limite, actual, id_replica)
                 VALUES (%s, %s, %s, %s)
